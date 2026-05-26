@@ -1,83 +1,96 @@
-'use strict';
+import { GoogleGenAI } from "@google/generative-ai";
 
-const GEMINI_MODEL    = 'gemini-2.5-flash-lite';
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-
-const SYSTEM_PROMPT = `
-あなたは中小企業向けの生成AI活用型販売業務支援システムの導入適合性を診断する専門アドバイザーです。
-ユーザーの入力情報をもとに導入適合スコアを算出し、以下の形式で必ずJSONのみを返してください。
-マークダウンや説明文は一切含めず、JSONオブジェクトのみを返すこと。
-
-{
-  "score": 数値(0-100),
-  "grade": "S/A/B/C のいずれか",
-  "headline": "診断結果の一行タイトル（20字以内）",
-  "next_step": "推奨する次のアクション（30字以内）",
-  "summary": "診断サマリー（100〜150字）",
-  "pain_points": [
-    { "title": "課題タイトル", "detail": "詳細説明（40字以内）", "severity": 1〜3の数値 }
-  ],
-  "recommended_features": [
-    { "feature": "推奨機能名", "reason": "推奨理由（40字以内）" }
-  ],
-  "roi_estimate": {
-    "workload_reduction": "例：月40時間",
-    "conversion_improvement": "例：+15%",
-    "payback_period": "例：8〜12ヶ月"
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
-}
 
-pain_pointsは2〜4件、recommended_featuresは2〜4件とすること。
-`.trim();
+  const { score, answers, lp } = req.body;
+  
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'GEMINI_API_KEY is not defined in environment variables.' });
+  }
 
-function buildPrompt(payload) {
-  return `
-業種: ${payload.industry || '未回答'}
-企業規模: ${payload.size || '未回答'}
-地域: ${payload.area || '未回答'}
-現在の課題: ${(payload.challenges || []).join('、')}
-月間問い合わせ数: ${payload.monthly_inquiries || '未回答'}
-現在のツール: ${payload.current_tools || '未回答'}
-導入目標: ${payload.goals || '未回答'}
-導入時期: ${payload.budget_timing || '未回答'}
-`.trim();
-}
+  // クライアント向け「士業コンサルティング・料金案内」の体系定義
+  const shigyoMenuAndPricing = `
+■ 合同会社Nexccess（3030_shigyo）提供：士業総合コンサルティング＆DXメニュー一覧・料金表
+1. クラウド会計導入＆財務DXコンサルティングプラン
+   - 初期設計・導入支援：250,000円（一括）
+   - 月額顧問報酬：45,000円〜（仕訳規模による）
+   - 概要：通帳・領収書の自動読込連携、コア業務への集中環境構築。
+2. 労務コンプライアンス＆就業規則AI最適化パッケージ
+   - 就業規則全面改定：300,000円
+   - 月額労務顧問：35,000円〜
+   - 概要：働き方改革関連法に完全準拠したリスクアラートモニタリングの構築。
+3. 行政手続き・許認可申請自動化スクリーニング
+   - スポット申請代行：150,000円〜（案件の難易度による）
+   - 概要：事前の要件定義をデジタル化し、書類不備による手戻り工数をゼロ化。
+4. Path-Flow型 AI診断・集客予約最適化システム（本システム）
+   - 提供価格：4,500,000円（税別・一括）※IT導入補助金（最大3/4補助）適合。
+`;
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  const systemInstruction = `
+あなたは合同会社Nexccessが開発した次世代AI診断ハブ「Path-Flow」のバックエンドに組み込まれた、世界最高峰の士業DX経営コンサルタントです。
+ユーザーから送信された「診断スコア（20点満点）」および「5つの設問の回答履歴」に基づき、客観的ファクトのみを用いたプロフェッショナルな経営分析レポートを日本語で生成してください。
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+以下の士業メニュー・料金表のコンテキストを理解し、現在のユーザーのボトルネック（低単価スポットへの依存、無料相談の工数肥大、Webの看板化など）を鋭く指摘した上で、どのメニューを導入すべきかの接続理由を論理的に提示してください。
 
-  try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY が未設定です');
+【メニュー料金表】
+${shigyoMenuAndPricing}
 
-    const payload = req.body;
+【出力ルール】
+- 結論から述べ、理由は箇条書きで簡潔に提示すること。
+- 憶測や「〜と思われます」といった曖昧な表現を完全に排除し、業務文書レベルの簡潔かつ厳格な表現を使用すること。
+- ユーザーに過度な忖度をせず、データに基づいたファクトのみを出力すること。
+`;
 
-    const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{ role: 'user', parts: [{ text: buildPrompt(payload) }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 1024 },
-      }),
+  const userPrompt = `
+【診断データ】
+- 対象LP識別ID: ${lp || 'shigyo-v1'}
+- 総合診断スコア: ${score} / 20
+- 回答テキスト: 
+${answers}
+
+上記データに基づき、このクライアントが導入を最優先すべきメニューとその理由を含めた、実践的なアセスメントサマリーを生成してください。
+`;
+
+  // モデルフォールバック配列（優先順）
+  const models = ['gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
+  let lastError = null;
+  let analysisText = "";
+
+  const ai = new GoogleGenAI({ apiKey: apiKey });
+
+  for (const modelName of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: [
+          { role: 'user', parts: [{ text: systemInstruction + "\n\n" + userPrompt }] }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 1200
+        }
+      });
+
+      if (response && response.text) {
+        analysisText = response.text;
+        break; // 生成成功
+      }
+    } catch (err) {
+      console.warn(`Model ${modelName} failed. Trying next fallback... Error:`, err.message);
+      lastError = err;
+    }
+  }
+
+  if (!analysisText) {
+    return res.status(500).json({ 
+      error: 'All Gemini models in fallback chain failed.', 
+      details: lastError ? lastError.message : 'Unknown error' 
     });
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error?.message || 'Gemini APIエラー');
-
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const clean = raw.replace(/```json|```/g, '').trim();
-    const result = JSON.parse(clean);
-
-    return res.status(200).json(result);
-
-  } catch (error) {
-    console.error('[diagnose] Error:', error);
-    return res.status(500).json({ error: error.message });
   }
-};
+
+  return res.status(200).json({ analysis: analysisText });
+}
