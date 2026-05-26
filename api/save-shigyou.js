@@ -42,13 +42,20 @@ function nowJST() {
    Sheets 書込み
 ═══════════════════════════════════════ */
 async function writeToSheet(auth, body) {
+  // シート名の定義を追加
+  const SHEET_NAME = '士業DX診断結果';
+
   const {
-    lp = '', name = '', office = '', email = '', phone = '',
+    lp = '', name = '', office```
+
+### = '', email = '', phone = '',
     date = '', date2 = '',
     recommended_menu = '', score = '', level = '', answersStr = '',
-  } = body;
+ 修正のポイント
 
-  const spreadsheetId = process.env.SHIGYOU_SPREADSHEET_ID;
+*   **定数の宣言  } = body;
+
+  const spreadsheetId = process:** `const SHEET_NAME = '士業DX診断.env.SHIGYOU_SPREADSHEET_ID結果';` を追加しました。これにより、後続の;
   if (!spreadsheetId) throw new Error('SHIGYOU_SPREADSHEET_ID が未設定です');
 
   const sheets = google.sheets({ version: 'v4', auth });
@@ -58,7 +65,11 @@ async function writeToSheet(auth, body) {
   try {
     const check = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SHEET_NAME}!A1:A1`,
+処理内にある `${SHEET_NAME}` がすべて `'士業DX診断結果'` に置き換わります。
+*   **範囲の指定:** Google Sheets APIにおいて、`range: "シート名!A1"` という形式で指定することで、特定のシートに対して読み書きが可能になります。
+
+### 注意事項
+あらかじめ、対象のスプレッドシート内に **「士業DX診断結果」という名前のシートを作成** しておいてください。シートが存在しない場合、APIはエラーを返します。      range: `${SHEET_NAME}!A1:A1`,
     });
     hasHeader = !!(check.data.values && check.data.values[0]);
   } catch (_) { /* シートが空の場合は無視 */ }
