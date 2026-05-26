@@ -43,13 +43,23 @@ function nowJST() {
 ═══════════════════════════════════════ */
 async function writeToSheet(auth, body) {
   const {
-    lp = '', name = '', office = '', email = '', phone = '',
-    date = '', date2 = '',
-    recommended_menu = '', score = '', level = '', answersStr = '',
+    lp = '',
+    name = '',
+    office = '',
+    email = '',
+    phone = '',
+    date = '',
+    date2 = '',
+    recommended_menu = '',
+    score = '',
+    level = '',
+    answersStr = '',
   } = body;
 
   const spreadsheetId = process.env.SHIGYOU_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error('SHIGYOU_SPREADSHEET_ID が未設定です');
+
+  const SHEET_NAME = '士業DX診断結果';
 
   const sheets = google.sheets({ version: 'v4', auth });
 
@@ -61,16 +71,30 @@ async function writeToSheet(auth, body) {
       range: `${SHEET_NAME}!A1:A1`,
     });
     hasHeader = !!(check.data.values && check.data.values[0]);
-  } catch (_) { /* シートが空の場合は無視 */ }
+  } catch (e) {
+    hasHeader = false; // シート空 or 未取得時
+  }
 
   const rows = [];
+
+  // ヘッダーが無い場合のみ追加
   if (!hasHeader) {
     rows.push([
-      '送信日時', 'LP_ID', 'お名前', '携帯電話', 'メールアドレス',
-      '希望日時（第1）', '希望日時（第2）',
-      'おすすめメニュー', 'スコア', 'レベル', '診断回答',
+      '送信日時',
+      'LP_ID',
+      'お名前',
+      '携帯電話',
+      'メールアドレス',
+      '希望日時（第1）',
+      '希望日時（第2）',
+      'おすすめメニュー',
+      'スコア',
+      'レベル',
+      '診断回答',
     ]);
   }
+
+  // データ行
   rows.push([
     nowJST(),
     lp,
@@ -85,11 +109,14 @@ async function writeToSheet(auth, body) {
     answersStr,
   ]);
 
+  // 追記（append）
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: `${SHEET_NAME}!A1`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values: rows },
+    requestBody: {
+      values: rows,
+    },
   });
 }
 
