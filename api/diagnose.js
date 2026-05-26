@@ -1,96 +1,128 @@
-import { GoogleGenAI } from "@google/generative-ai";
+// api/diagnose.js  ─  Path-Flow Ver 3.4  /  3030_shigyo（士業）
+// Gemini AI診断エンジン  |  モデルフォールバック: 2.5-flash-lite → 1.5-flash → 1.5-flash-8b
 
-export default async function handler(req, res) {
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+const MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-8b',
+];
+
+const SYSTEM_PROMPT = `あなたは士業（税理士・社労士・行政書士）事務所向けDXコンサルタントです。
+診断スコアと回答内容に基づき、最適なサービスを1つ推薦してください。
+
+【サービスメニュー一覧】
+─ 税務・会計 ─
+・月次顧問（税務）      月額 30,000円〜
+・確定申告（個人）      55,000円〜
+・確定申告（法人）      110,000円〜
+・決算申告サポート      165,000円〜
+・税務調査立会い        220,000円〜（別途日当）
+─ 社会保険・労務 ─
+・月次顧問（社労士）    月額 33,000円〜
+・給与計算代行          月額 22,000円〜（〜10名）
+・就業規則策定・改定    165,000円〜
+・助成金申請代行        成功報酬20%（最低55,000円）
+・社会保険新規適用手続き 55,000円〜
+─ 行政書士・許認可 ─
+・会社設立フルサポート  165,000円〜
+・建設業許可（新規）    165,000円〜
+・建設業許可（更新）    99,000円〜
+・経営事項審査（経審）  110,000円〜
+・産廃業許可            220,000円〜
+・各種変更届            55,000円〜
+─ DX・IT化支援 ─
+・Path-Flow AI診断・予約システム導入   450,000円（一括）
+・IT導入補助金申請サポート            110,000円〜
+
+【回答ルール（JSON形式で返答）】
+{
+  "recommended_menu": "サービス名（上記一覧から1件）",
+  "price": "料金（上記の通り）",
+  "score": "A/B/C のいずれか",
+  "level": "レベル名（例：DX未着手・レベル1）",
+  "reason": "推薦理由（100〜150字の日本語）"
+}
+上記JSON以外の文字を一切含めないこと。`;
+
+function ruleBasedResult(answers, score) {
+  if (score <= 8) {
+    return {
+      recommended_menu: 'Path-Flow AI診断・予約システム導入',
+      price: '450,000円（一括）',
+      score: 'C',
+      level: 'DX未着手 — レベル1',
+      reason: '問い合わせ・データ管理・情報発信・予約すべてがアナログ段階です。まずAI診断・予約自動化システムで業務基盤を整え、顧問契約の獲得効率を抜本的に改善することを推奨します。',
+    };
+  } else if (score <= 12) {
+    return {
+      recommended_menu: '月次顧問（社労士）',
+      price: '月額 33,000円〜',
+      score: 'B',
+      level: 'DX入門期 — レベル2',
+      reason: '基礎的なデジタル化は進んでいますが、労務管理の定期的なサポートが未整備です。月次顧問契約で給与計算・社保手続きを一元化し、経営者の工数を削減することを優先します。',
+    };
+  } else if (score <= 16) {
+    return {
+      recommended_menu: '就業規則策定・改定',
+      price: '165,000円〜',
+      score: 'B',
+      level: 'DX移行期 — レベル3',
+      reason: 'DX化は進んでいますが、労務コンプライアンスの整備が次の成長段階で重要になります。就業規則の策定・改定で法的リスクを排除し、採用・組織拡大の基盤を整えましょう。',
+    };
+  } else {
+    return {
+      recommended_menu: 'IT導入補助金申請サポート',
+      price: '110,000円〜',
+      score: 'A',
+      level: 'DX活用期 — レベル4',
+      reason: '高水準のDX活用が実現されています。IT導入補助金を活用してさらなるシステム投資を行うことで、補助金を得ながら業務効率化とコスト削減を同時に達成できます。',
+    };
+  }
+}
+
+module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { score, answers, lp } = req.body;
-  
+  const { answers, score } = req.body || {};
+  const numericScore = Number(score) || 0;
+
+  const userMessage = `診断スコア: ${numericScore}/20\n回答内容: ${JSON.stringify(answers)}\n上記に基づき最適なサービスを1件推薦してください。`;
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY is not defined in environment variables.' });
+    console.warn('[diagnose] GEMINI_API_KEY未設定 → ルールベースフォールバック');
+    return res.status(200).json(ruleBasedResult(answers, numericScore));
   }
 
-  // クライアント向け「士業コンサルティング・料金案内」の体系定義
-  const shigyoMenuAndPricing = `
-■ 合同会社Nexccess（3030_shigyo）提供：士業総合コンサルティング＆DXメニュー一覧・料金表
-1. クラウド会計導入＆財務DXコンサルティングプラン
-   - 初期設計・導入支援：250,000円（一括）
-   - 月額顧問報酬：45,000円〜（仕訳規模による）
-   - 概要：通帳・領収書の自動読込連携、コア業務への集中環境構築。
-2. 労務コンプライアンス＆就業規則AI最適化パッケージ
-   - 就業規則全面改定：300,000円
-   - 月額労務顧問：35,000円〜
-   - 概要：働き方改革関連法に完全準拠したリスクアラートモニタリングの構築。
-3. 行政手続き・許認可申請自動化スクリーニング
-   - スポット申請代行：150,000円〜（案件の難易度による）
-   - 概要：事前の要件定義をデジタル化し、書類不備による手戻り工数をゼロ化。
-4. Path-Flow型 AI診断・集客予約最適化システム（本システム）
-   - 提供価格：4,500,000円（税別・一括）※IT導入補助金（最大3/4補助）適合。
-`;
+  const genAI = new GoogleGenerativeAI(apiKey);
 
-  const systemInstruction = `
-あなたは合同会社Nexccessが開発した次世代AI診断ハブ「Path-Flow」のバックエンドに組み込まれた、世界最高峰の士業DX経営コンサルタントです。
-ユーザーから送信された「診断スコア（20点満点）」および「5つの設問の回答履歴」に基づき、客観的ファクトのみを用いたプロフェッショナルな経営分析レポートを日本語で生成してください。
-
-以下の士業メニュー・料金表のコンテキストを理解し、現在のユーザーのボトルネック（低単価スポットへの依存、無料相談の工数肥大、Webの看板化など）を鋭く指摘した上で、どのメニューを導入すべきかの接続理由を論理的に提示してください。
-
-【メニュー料金表】
-${shigyoMenuAndPricing}
-
-【出力ルール】
-- 結論から述べ、理由は箇条書きで簡潔に提示すること。
-- 憶測や「〜と思われます」といった曖昧な表現を完全に排除し、業務文書レベルの簡潔かつ厳格な表現を使用すること。
-- ユーザーに過度な忖度をせず、データに基づいたファクトのみを出力すること。
-`;
-
-  const userPrompt = `
-【診断データ】
-- 対象LP識別ID: ${lp || 'shigyo-v1'}
-- 総合診断スコア: ${score} / 20
-- 回答テキスト: 
-${answers}
-
-上記データに基づき、このクライアントが導入を最優先すべきメニューとその理由を含めた、実践的なアセスメントサマリーを生成してください。
-`;
-
-  // モデルフォールバック配列（優先順）
-  const models = ['gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
-  let lastError = null;
-  let analysisText = "";
-
-  const ai = new GoogleGenAI({ apiKey: apiKey });
-
-  for (const modelName of models) {
+  for (const modelName of MODELS) {
     try {
-      const response = await ai.models.generateContent({
+      const model = genAI.getGenerativeModel({
         model: modelName,
-        contents: [
-          { role: 'user', parts: [{ text: systemInstruction + "\n\n" + userPrompt }] }
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 1200
-        }
+        systemInstruction: SYSTEM_PROMPT,
+        generationConfig: { responseMimeType: 'application/json' },
       });
-
-      if (response && response.text) {
-        analysisText = response.text;
-        break; // 生成成功
-      }
+      const result = await model.generateContent(userMessage);
+      const text = result.response.text().trim();
+      const json = JSON.parse(text.replace(/```json|```/g, '').trim());
+      console.log(`[diagnose] ${modelName} → success`);
+      return res.status(200).json(json);
     } catch (err) {
-      console.warn(`Model ${modelName} failed. Trying next fallback... Error:`, err.message);
-      lastError = err;
+      const status = err?.status || err?.httpError || 0;
+      console.warn(`[diagnose] ${modelName} failed (${status}):`, err.message);
+      if (status !== 429 && status !== 503) {
+        // 429/503以外のエラーは次モデルへフォールバックせず終了
+        break;
+      }
+      // 429/503 → 次モデルへ
     }
   }
 
-  if (!analysisText) {
-    return res.status(500).json({ 
-      error: 'All Gemini models in fallback chain failed.', 
-      details: lastError ? lastError.message : 'Unknown error' 
-    });
-  }
-
-  return res.status(200).json({ analysis: analysisText });
-}
+  console.warn('[diagnose] 全モデル失敗 → ルールベースフォールバック');
+  return res.status(200).json(ruleBasedResult(answers, numericScore));
+};
