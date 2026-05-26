@@ -1117,8 +1117,10 @@ const DX_CONFIG = {
 };
 
 // Amplitude 初期化 & page_view 計測
-amplitude.init(AMPLITUDE_API_KEY, { defaultTracking: false });
-amplitude.track('page_view', { lp: LP_ID });
+if (typeof amplitude !== 'undefined') {
+  amplitude.init(AMPLITUDE_API_KEY, { defaultTracking: false });
+  amplitude.track('page_view', { lp: LP_ID });
+}
 
 /* ─── スコア定義 ─────────────────────────────────── */
 const DX_LEVELS = [
