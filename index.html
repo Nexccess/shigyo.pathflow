@@ -378,17 +378,21 @@ footer{padding:52px 0 32px;background:var(--off-white);border-top:1px solid var(
 <!-- ══ Amplitude アクセス解析 ══ -->
 <script src="https://cdn.amplitude.com/libs/analytics-browser-2.11.1-min.js.gz"></script>
 <script>
-window.amplitude.init('8d3b5be866c4740fa6c83949f85ce25e', {
-  defaultTracking: false,
-  logLevel: window.amplitude.Types.LogLevel.Warn,
-});
+if (typeof window.amplitude !== 'undefined') {
+  window.amplitude.init('8d3b5be866c4740fa6c83949f85ce25e', {
+    defaultTracking: false,
+    logLevel: window.amplitude.Types.LogLevel.Warn,
+  });
+}
 // LP識別プロパティをセット
-const _identify = new window.amplitude.Identify();
-_identify.set('lp_name', 'shigyou-v1');
-_identify.set('lp_label', '士業DX診断LP');
-window.amplitude.identify(_identify);
-// ページビュー計測
-window.amplitude.track('page_view', { lp: 'shigyou-v1' });
+if (typeof window.amplitude !== 'undefined') {
+  const _identify = new window.amplitude.Identify();
+  _identify.set('lp_name', 'shigyou-v1');
+  _identify.set('lp_label', '士業DX診断LP');
+  window.amplitude.identify(_identify);
+  // ページビュー計測
+  window.amplitude.track('page_view', { lp: 'shigyou-v1' });
+}
 </script>
 <script src="https://cdn.amplitude.com/libs/analytics-browser-2.3.8-min.js.gz"></script>
 </head>
@@ -1064,6 +1068,38 @@ function switchCase(idx){
             <input type="email" class="dx-input" id="dx-email" placeholder="メールアドレス（必須）">
             <input type="tel"   class="dx-input" id="dx-tel"   placeholder="電話番号（任意）">
           </div>
+          <div class="dx-form-row">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:12px;color:#7A7A9A;padding-left:2px;">希望日（第1・必須）</label>
+              <input type="date" class="dx-input" id="dx-date1" style="color:#1A1A2E;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:12px;color:#7A7A9A;padding-left:2px;">希望時間帯（第1）</label>
+              <select class="dx-input" id="dx-time1" style="color:#1A1A2E;background:#F8F7F4;">
+                <option value="">-- 選択してください --</option>
+                <option value="午前（10:00〜12:00）">午前（10:00〜12:00）</option>
+                <option value="昼（12:00〜14:00）">昼（12:00〜14:00）</option>
+                <option value="午後（14:00〜17:00）">午後（14:00〜17:00）</option>
+                <option value="夕方（17:00〜19:00）">夕方（17:00〜19:00）</option>
+              </select>
+            </div>
+          </div>
+          <div class="dx-form-row">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:12px;color:#7A7A9A;padding-left:2px;">希望日（第2・任意）</label>
+              <input type="date" class="dx-input" id="dx-date2" style="color:#1A1A2E;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:12px;color:#7A7A9A;padding-left:2px;">希望時間帯（第2）</label>
+              <select class="dx-input" id="dx-time2" style="color:#1A1A2E;background:#F8F7F4;">
+                <option value="">-- 選択してください --</option>
+                <option value="午前（10:00〜12:00）">午前（10:00〜12:00）</option>
+                <option value="昼（12:00〜14:00）">昼（12:00〜14:00）</option>
+                <option value="午後（14:00〜17:00）">午後（14:00〜17:00）</option>
+                <option value="夕方（17:00〜19:00）">夕方（17:00〜19:00）</option>
+              </select>
+            </div>
+          </div>
           <div class="dx-error" id="dx-form-error">お名前とメールアドレスをご入力ください。</div>
           <button class="dx-submit" id="dx-submit-btn" onclick="DX.submit()">
             相談を予約して診断レポートを受け取る →
@@ -1238,6 +1274,7 @@ const DX = (() => {
     $('dx-progress-wrap').style.display = 'block';
     document.querySelectorAll('.dx-option').forEach(o => o.classList.remove('selected'));
     $('dx-name').value = $('dx-office').value = $('dx-email').value = $('dx-tel').value = '';
+    $('dx-date1').value = $('dx-time1').value = $('dx-date2').value = $('dx-time2').value = '';
     $('dx-form-error').classList.remove('show');
     updateUI();
   }
@@ -1372,8 +1409,16 @@ const DX = (() => {
       office: office,
       email:  email,
       phone:  tel,
-      date:   '',                          // フォームにdate項目なし→空文字
-      date2:  '',
+      date:   (() => {
+        const d = $('dx-date1').value;
+        const t = $('dx-time1').value;
+        return d ? (t ? `${d} ${t}` : d) : '';
+      })(),
+      date2:  (() => {
+        const d = $('dx-date2').value;
+        const t = $('dx-time2').value;
+        return d ? (t ? `${d} ${t}` : d) : '';
+      })(),
       score:  score,
       level:  level.title,
       answersStr: answersStr,
